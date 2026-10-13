@@ -1,0 +1,7 @@
+{$PINNER_DOMAIN} {
+	encode gzip
+	request_body {
+		max_size 5MB
+	}
+	reverse_proxy pinner-server:8080
+}
