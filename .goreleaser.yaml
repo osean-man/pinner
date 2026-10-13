@@ -1,0 +1,47 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: pinner
+    main: .
+    binary: pinner
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags: [-trimpath]
+    ldflags: ["-s -w"]
+  - id: pinner-server
+    main: ./cmd/pinner-server
+    binary: pinner-server
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w"]
+
+archives:
+  - id: pinner
+    ids: [pinner]
+    name_template: "pinner_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [README.md, LICENSE]
+  - id: pinner-server
+    ids: [pinner-server]
+    name_template: "pinner-server_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files: [README.md, LICENSE, deploy/*]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
