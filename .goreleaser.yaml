@@ -2,33 +2,48 @@ version: 2
 
 before:
   hooks:
-    - go mod tidy
+    - go mod verify
 
+# Every target builds without cgo (pure-Go SQLite). -trimpath plus the commit timestamp as the
+# file mtime makes builds reproducible: the same tag rebuilds to the same bytes.
 builds:
   - id: pinner
     main: .
     binary: pinner
     env: [CGO_ENABLED=0]
-    goos: [linux, darwin, windows]
-    goarch: [amd64, arm64]
+    goos: [linux, darwin, windows, freebsd]
+    goarch: [amd64, arm64, "386", arm, riscv64]
+    goarm: ["7"]
     ignore:
-      - goos: windows
-        goarch: arm64
+      - { goos: darwin, goarch: "386" }
+      - { goos: darwin, goarch: arm }
+      - { goos: darwin, goarch: riscv64 }
+      - { goos: windows, goarch: "386" }
+      - { goos: windows, goarch: arm }
+      - { goos: windows, goarch: riscv64 }
+      - { goos: freebsd, goarch: "386" }
+      - { goos: freebsd, goarch: arm }
+      - { goos: freebsd, goarch: riscv64 }
     flags: [-trimpath]
-    ldflags: ["-s -w"]
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .FullCommit }} -X main.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
   - id: pinner-server
     main: ./cmd/pinner-server
     binary: pinner-server
     env: [CGO_ENABLED=0]
-    goos: [linux]
+    goos: [linux, freebsd]
     goarch: [amd64, arm64]
     flags: [-trimpath]
-    ldflags: ["-s -w"]
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .FullCommit }} -X main.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
   - id: pinner
     ids: [pinner]
-    name_template: "pinner_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "pinner_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
     formats: [tar.gz]
     format_overrides:
       - goos: windows
@@ -38,10 +53,36 @@ archives:
     ids: [pinner-server]
     name_template: "pinner-server_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
-    files: [README.md, LICENSE, deploy/*]
+    files: [README.md, LICENSE, docs/self-hosting.md, deploy/*]
 
 checksum:
   name_template: checksums.txt
+  algorithm: sha256
+
+# One SPDX SBOM per archive (needs syft on PATH).
+sboms:
+  - artifacts: archive
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot+{{ .ShortCommit }}"
 
 changelog:
   sort: asc
+  filters:
+    exclude:
+      - "^Merge "
+
+release:
+  footer: |
+    ## Verify your download
+
+    ```bash
+    # Checksums
+    sha256sum --ignore-missing -c checksums.txt
+
+    # Build provenance: proves this archive was built by this repository's release workflow
+    gh attestation verify pinner_{{ .Version }}_linux_amd64.tar.gz --repo {{ .Env.GITHUB_REPOSITORY }}
+    ```
+
+    Sync server image: `ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pinner-server:{{ .Version }}`
+    (verify with `gh attestation verify oci://ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/pinner-server:{{ .Version }} --repo {{ .Env.GITHUB_REPOSITORY }}`).

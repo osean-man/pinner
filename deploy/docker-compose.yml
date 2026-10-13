@@ -1,8 +1,11 @@
 # pinner sync server behind Caddy (automatic HTTPS via Let's Encrypt).
-#   cp deploy/.env.example deploy/.env   # set PINNER_DOMAIN
-#   docker compose -f deploy/docker-compose.yml up -d --build
+#   cp deploy/.env.example deploy/.env   # set PINNER_DOMAIN (and PINNER_VERSION)
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull     # released image from ghcr.io
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
+# To build from this checkout instead, add --build to `up`.
 services:
   pinner-server:
+    image: ghcr.io/osean-man/pinner-server:${PINNER_VERSION:-1}
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -15,7 +18,7 @@ services:
       - "8080"
 
   caddy:
-    image: caddy:2.8
+    image: caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
     restart: unless-stopped
     ports:
       - "80:80"
