@@ -1,18 +1,23 @@
-// Package e2e builds the real pinner and pinner-server binaries and drives them like a user would.
+//go:build !windows
+
+// Package e2e (Unix only: it drives a Unix shell and tmux) builds the real pinner and pinner-server binaries and drives them like a user would.
 // Interactive tests run the menu inside an isolated tmux server and are skipped if tmux is missing.
 package e2e
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -25,10 +30,6 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	if runtime.GOOS == "windows" {
-		fmt.Println("skipping e2e tests: they drive a Unix shell")
-		os.Exit(0)
-	}
 	dir, err := os.MkdirTemp("", "pinner-e2e-bin-")
 	if err != nil {
 		panic(err)
@@ -533,7 +534,19 @@ func newTmux(t *testing.T, d *device, width int, command string) *tmux {
 	}
 	tm.cmd("new-session", "-d", "-s", tm.session, "-x", fmt.Sprint(width), "-y", "30", script)
 	tm.cmd("resize-window", "-t", tm.session, "-x", fmt.Sprint(width), "-y", "30")
-	t.Cleanup(func() { _ = exec.Command("tmux", "-L", tm.socket, "kill-server").Run() })
+	// tmux puts the pane's processes in a process group led by the pane's first process.
+	pgid, _ := strconv.Atoi(strings.TrimSpace(tm.cmd("display-message", "-p", "-t", tm.session, "#{pane_pid}")))
+	t.Cleanup(func() {
+		_ = exec.Command("tmux", "-L", tm.socket, "kill-server").Run()
+		// Wait for the pane's processes to exit before t.TempDir cleanup runs: a shell writes its
+		// history file into the (temp) HOME as it exits, which races with deleting the directory.
+		for i := 0; pgid > 0 && i < 100; i++ {
+			if err := syscall.Kill(-pgid, 0); errors.Is(err, syscall.ESRCH) {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	})
 	time.Sleep(700 * time.Millisecond)
 	return tm
 }
