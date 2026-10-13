@@ -1,6 +1,7 @@
 package placeholder
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -47,5 +48,35 @@ func TestCommandsWithoutPlaceholdersAreUntouched(t *testing.T) {
 		if out := Fill(c, map[string]string{"EOF": "boom", "an": "boom"}); out != c {
 			t.Errorf("Fill changed %q to %q", c, out)
 		}
+	}
+}
+
+func TestSetDefaults(t *testing.T) {
+	cmd := "ssh -i <<key:~/.ssh/id_ed25519>> <<user>>@<<host>> -L <<port:5601>>:localhost:<<port>> # {{.Names}}"
+	got, err := SetDefaults(cmd, map[string]string{"host": "10.0.0.9", "port": "9200", "key": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "ssh -i <<key>> <<user>>@<<host:10.0.0.9>> -L <<port:9200>>:localhost:<<port:9200>> # {{.Names}}"
+	if got != want {
+		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+	// Reading the defaults back gives what was saved.
+	defaults := map[string]string{}
+	for _, p := range Find(got) {
+		defaults[p.Name] = p.Default
+	}
+	if defaults["host"] != "10.0.0.9" || defaults["port"] != "9200" || defaults["key"] != "" || defaults["user"] != "" {
+		t.Fatalf("defaults read back as %v", defaults)
+	}
+	// Values with characters the syntax can't hold are refused rather than corrupting the pin.
+	for _, bad := range []string{"a>b", "<x", "two\nlines"} {
+		if _, err := SetDefaults(cmd, map[string]string{"host": bad}); !errors.Is(err, ErrUnstorableDefault) {
+			t.Errorf("SetDefaults with %q: %v", bad, err)
+		}
+	}
+	// Values with colons and spaces are fine.
+	if out, err := SetDefaults("echo <<when>>", map[string]string{"when": "12:30 tomorrow"}); err != nil || Find(out)[0].Default != "12:30 tomorrow" {
+		t.Fatalf("colon/space default: %q %v", out, err)
 	}
 }

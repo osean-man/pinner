@@ -447,3 +447,77 @@ func TestAdoptionMergesIndependentCopies(t *testing.T) {
 		t.Fatalf("a merge that differs from the server must be pushed with a newer version: %+v", p)
 	}
 }
+
+func TestMigratesVersion1ToVersion2(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "commands.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := mustAdd(t, s, "echo <<x>>")
+	_ = s.Close()
+
+	// Turn it back into a version 1 database (as released in v1.0.0).
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DROP TABLE placeholder_values; PRAGMA user_version = 1"); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.SaveLastValues(p.ID, map[string]string{"x": "1"}); err != nil {
+		t.Fatalf("v2 table missing after migrating from v1: %v", err)
+	}
+	if got, _ := s.Get(p.ID); got.Command != "echo <<x>>" {
+		t.Fatalf("pin changed by migration: %+v", got)
+	}
+	if _, err := os.Stat(path + ".bak"); err != nil {
+		t.Fatalf("no backup before the v1 → v2 migration: %v", err)
+	}
+}
+
+func TestLastValuesAreLocalOnly(t *testing.T) {
+	s, _ := openTemp(t)
+	a := mustAdd(t, s, "ssh <<user>>@<<host>>")
+	b := mustAdd(t, s, "ping <<host>>")
+	for _, p := range []Pin{a, b} {
+		if err := s.MarkPushed(p.UUID, p.HLC); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, err := s.LastValues(a.ID); err != nil || len(got) != 0 {
+		t.Fatalf("fresh pin has values %v (%v)", got, err)
+	}
+	if err := s.SaveLastValues(a.ID, map[string]string{"user": "me", "host": "10.0.0.1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveLastValues(a.ID, map[string]string{"host": "10.0.0.2"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.LastValues(a.ID)
+	if got["user"] != "me" || got["host"] != "10.0.0.2" || len(got) != 2 {
+		t.Fatalf("values %v", got)
+	}
+	if other, _ := s.LastValues(b.ID); len(other) != 0 {
+		t.Fatalf("values leaked to another pin: %v", other)
+	}
+	if dirty, _ := s.Dirty(); len(dirty) != 0 {
+		t.Fatal("saving values must not create sync changes")
+	}
+	if cur, _ := s.Get(a.ID); cur.HLC != a.HLC {
+		t.Fatal("saving values must not advance the clock")
+	}
+	if err := s.Remove(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.LastValues(a.ID); len(got) != 0 {
+		t.Fatalf("removing a pin should forget its values, got %v", got)
+	}
+}

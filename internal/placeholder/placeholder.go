@@ -5,7 +5,10 @@
 package placeholder
 
 import (
+	"errors"
+	"fmt"
 	"regexp"
+	"strings"
 )
 
 var pattern = regexp.MustCompile(`<<([A-Za-z_][A-Za-z0-9_-]*)(?::([^<>\n]*))?>>`)
@@ -48,4 +51,33 @@ func Fill(command string, values map[string]string) string {
 		}
 		return defaults[name]
 	})
+}
+
+// ErrUnstorableDefault is returned by SetDefaults for values that can't be written inside <<name:...>>.
+var ErrUnstorableDefault = errors.New("value can't be saved as a default (it contains <, > or a newline)")
+
+// CanBeDefault reports whether value can be stored as a placeholder default.
+func CanBeDefault(value string) bool {
+	return !strings.ContainsAny(value, "<>\n")
+}
+
+// SetDefaults rewrites every occurrence of the placeholders named in values to use that value as its
+// default (an empty value removes the default). Other placeholders and text are left unchanged.
+func SetDefaults(command string, values map[string]string) (string, error) {
+	for name, v := range values {
+		if !CanBeDefault(v) {
+			return "", fmt.Errorf("%s: %w", name, ErrUnstorableDefault)
+		}
+	}
+	return pattern.ReplaceAllStringFunc(command, func(m string) string {
+		name := pattern.FindStringSubmatch(m)[1]
+		v, ok := values[name]
+		if !ok {
+			return m
+		}
+		if v == "" {
+			return "<<" + name + ">>"
+		}
+		return "<<" + name + ":" + v + ">>"
+	}), nil
 }

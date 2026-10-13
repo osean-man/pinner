@@ -11,7 +11,6 @@ import (
 	"github.com/manifoldco/promptui"
 	"github.com/osean-man/pinner/internal/config"
 	"github.com/osean-man/pinner/internal/database"
-	"github.com/osean-man/pinner/internal/placeholder"
 	"github.com/spf13/cobra"
 )
 
@@ -112,7 +111,7 @@ func showDefaultMenu() error {
 		return err
 	}
 
-	command, err := fillPlaceholders(pin.Command)
+	command, pin, err := fillPlaceholders(pin)
 	if err != nil {
 		return err
 	}
@@ -157,31 +156,6 @@ func offerFirstPin() error {
 	_, _ = fmt.Fprintln(os.Stderr, "Command pinned successfully!")
 	autoSync(writeSyncTimeout)
 	return nil
-}
-
-// fillPlaceholders prompts for each <<name>> placeholder in command.
-func fillPlaceholders(command string) (string, error) {
-	params := placeholder.Find(command)
-	if len(params) == 0 {
-		return command, nil
-	}
-	values := make(map[string]string, len(params))
-	for _, p := range params {
-		label := p.Name
-		if p.Default != "" {
-			label = fmt.Sprintf("%s [%s]", p.Name, p.Default)
-		}
-		prompt := promptui.Prompt{Label: label, Stdout: os.Stderr}
-		v, err := prompt.Run()
-		if err != nil {
-			return "", err
-		}
-		if v == "" {
-			v = p.Default
-		}
-		values[p.Name] = v
-	}
-	return placeholder.Fill(command, values), nil
 }
 
 func confirm(label string) (bool, error) {
