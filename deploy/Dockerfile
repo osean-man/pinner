@@ -3,12 +3,13 @@
 FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
 ARG VERSION=""
 ARG COMMIT=""
+ARG DATE=""
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath \
-      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
       -o /out/pinner-server ./cmd/pinner-server \
  && mkdir -p /out/data
 
