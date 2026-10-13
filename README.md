@@ -146,17 +146,50 @@ The design and threat model are in [docs/sync-design.md](docs/sync-design.md). T
 
 ## Installation
 
-Download a release binary, or build from source (Go 1.23+, no C compiler needed):
+### From a release (recommended)
+
+Releases have prebuilt binaries for Linux (amd64, arm64, armv7, 386, riscv64), macOS (Intel and Apple
+Silicon), Windows (amd64, arm64) and FreeBSD. The install script picks the right one, checks its SHA-256
+checksum against the release's `checksums.txt` and installs it to `/usr/local/bin` (using sudo if needed):
 
 ```bash
-git clone git@github.com:osean-man/pinner.git
-cd pinner
-go build -o pinner .
-sudo mv pinner /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/osean-man/pinner/master/install.sh | sh
 ```
 
-To cross-compile, set `GOOS` and `GOARCH`, e.g. `GOOS=windows GOARCH=amd64 go build -o pinner.exe .`.
-The sync server builds the same way: `go build -o pinner-server ./cmd/pinner-server`.
+Options: `PINNER_VERSION=v1.0.0` to install a specific release, `BIN_DIR=~/.local/bin` to install elsewhere, and
+`PINNER_VERIFY_ATTESTATION=1` to also check the build provenance with the GitHub CLI.
+
+**Updating** works the same way: run the install script again. Check what you're running with `pinner --version`;
+it prints the release version and the exact commit it was built from.
+
+### Verifying a download yourself
+
+Every release includes `checksums.txt` (SHA-256 for every archive), an SPDX SBOM per archive, and a signed
+[build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
+proving the archive was built by this repository's release workflow from the tagged commit:
+
+```bash
+sha256sum --ignore-missing -c checksums.txt
+gh attestation verify pinner_1.0.0_linux_amd64.tar.gz --repo osean-man/pinner
+```
+
+Builds are reproducible: the same tag built with the same Go toolchain gives byte-identical binaries.
+
+### From source
+
+Go 1.26+ is required; there's no C compiler dependency. If your Go is older than the `toolchain` line in `go.mod`,
+Go downloads that version automatically.
+
+```bash
+git clone https://github.com/osean-man/pinner.git
+cd pinner
+make install            # builds and copies to /usr/local/bin (sudo make install if you don't own it)
+make install BINDIR=~/.local/bin
+```
+
+`go build` on its own only writes `./pinner` in the current directory; it doesn't install anything. Cross-compile
+with `GOOS`/`GOARCH`, e.g. `GOOS=windows GOARCH=amd64 go build -o pinner.exe .`. The sync server builds with
+`make server`.
 
 ### Data location
 
@@ -173,10 +206,28 @@ Upgrading from an earlier version migrates your existing database automatically,
 ## Development
 
 ```bash
-go test ./...          # unit, sync and end-to-end tests (the e2e tests build the binaries)
+make test              # go test -race ./...  (unit, sync and end-to-end tests)
+make lint              # gofmt, go vet, govulncheck
+make snapshot          # build every release artifact into dist/ without publishing (needs Docker)
 go test -short ./...   # skip the test that builds the original release to check migration
 ```
 
 The interactive end-to-end tests drive the real menu inside tmux and are skipped if tmux isn't installed.
-CI runs on Linux and macOS and cross-compiles every release target. Pushing a `v*` tag publishes a release
-with GoReleaser.
+
+### CI/CD
+
+- **CI** (`.github/workflows/ci.yml`) runs on every push and pull request. It runs the tests on Linux (amd64 and
+  arm64), macOS and Windows, checks formatting, runs `go vet`, govulncheck and shellcheck, and does a full
+  GoReleaser snapshot build plus a Docker build, so a broken release config fails CI before anything is tagged.
+- **Releases** (`.github/workflows/release.yml`) run when a `v*` tag is pushed. The full CI suite runs first. Then
+  GoReleaser publishes the archives, checksums and SBOMs, the archives get a build provenance attestation, and a
+  multi-arch (amd64/arm64) `ghcr.io/osean-man/pinner-server` image is pushed with its own SBOM and attestation.
+- **Pinning:** every GitHub Action is pinned to a full commit SHA, Docker base images are pinned by digest, the Go
+  toolchain is pinned in `go.mod`, and GoReleaser and govulncheck run at fixed versions. Dependabot opens weekly
+  grouped PRs to update the actions, Go modules and images.
+
+To cut a release:
+
+```bash
+git tag -a v1.2.3 -m "v1.2.3" && git push origin v1.2.3
+```

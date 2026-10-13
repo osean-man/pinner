@@ -18,15 +18,28 @@ renews a Let's Encrypt certificate automatically.
 
 ## 2. Run it
 
+Releases publish a multi-arch image (amd64 and arm64) to `ghcr.io/osean-man/pinner-server`. The compose file uses
+it, so the droplet doesn't need to build anything:
+
 ```bash
 # on the droplet, with Docker and the compose plugin installed
 git clone https://github.com/osean-man/pinner.git
 cd pinner
 cp deploy/.env.example deploy/.env
 $EDITOR deploy/.env          # set PINNER_DOMAIN; PINNER_MAX_USERS=1 for a personal server
-docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull
+docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 curl https://pins.example.com/healthz   # → ok
 ```
+
+`PINNER_VERSION` in `.env` chooses the image tag. A major version (`1`) picks up compatible updates on the next `pull`,
+and a full version (`1.0.0`) pins it exactly. To verify the image was built by this repository's release workflow:
+
+```bash
+gh attestation verify oci://ghcr.io/osean-man/pinner-server:1.0.0 --repo osean-man/pinner
+```
+
+To build from the checkout instead of pulling, add `--build` to `up`.
 
 Then on your first device:
 
@@ -53,11 +66,12 @@ limit is reached, the server refuses new registrations, so nobody else can store
     and uploads its pins, and the other devices then fill in anything it was missing.
 
   Nothing needs to be done on the devices; just run `pinner sync` on each one, or wait for the next automatic sync.
-- To upgrade, run `git pull && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build`.
+- To upgrade, run `docker compose -f deploy/docker-compose.yml --env-file deploy/.env pull && docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d`.
+  Also `git pull` if `deploy/` itself changed (compose file, Caddyfile).
 
 ## Without Docker
 
-Release archives include a static `pinner-server` binary. Run it under systemd behind any TLS reverse proxy:
+Release archives include a static `pinner-server` binary (`pinner-server --version` shows the build). Run it under systemd behind any TLS reverse proxy:
 
 ```ini
 # /etc/systemd/system/pinner-server.service
