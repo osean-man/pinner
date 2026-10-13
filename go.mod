@@ -7,27 +7,27 @@ toolchain go1.27.2
 require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/google/uuid v1.6.0
-	github.com/jedib0t/go-pretty/v6 v6.5.4
+	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/manifoldco/promptui v0.9.0
-	github.com/mattn/go-runewidth v0.0.15
-	github.com/spf13/cobra v1.8.0
+	github.com/mattn/go-runewidth v0.0.16
+	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.58.0
 	golang.org/x/term v0.47.0
-	modernc.org/sqlite v1.38.2
+	modernc.org/sqlite v1.60.1
 )
 
 require (
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/ncruces/go-strftime v0.1.9 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/rivo/uniseg v0.2.0 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	golang.org/x/sys v0.49.0 // indirect
-	modernc.org/libc v1.66.3 // indirect
+	golang.org/x/text v0.43.0 // indirect
+	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.11.0 // indirect
+	modernc.org/memory v1.12.1 // indirect
 )
