@@ -1,2 +1,8 @@
 .idea
-pinner
+/pinner
+/pinner-server
+/dist/
+*.db
+*.db-wal
+*.db-shm
+deploy/.env
