@@ -82,7 +82,7 @@ Plaintext record, before padding:
 ```
 
 Tombstones (`deleted: true`) carry only `uuid`, `hlc` and `created_at`; the command is stripped before encryption.
-Usage counts and the local-only flag are **not** synced. They're per-device, and syncing usage would create a new
+Usage counts, the local-only flag and remembered placeholder values are **not** synced. They're per-device, and syncing usage would create a new
 version every time a pin runs.
 
 ## Local data model
@@ -92,6 +92,9 @@ Schema version is tracked in `PRAGMA user_version`. Migrating from version 0 (th
 1. Copies the database to `commands.db.bak` with `VACUUM INTO`.
 2. Adds columns `uuid` (unique, backfilled), `label`, `tags`, `sensitive`, `local`, `use_count`, `last_used`,
    `hlc`, `deleted`, `dirty` and `synced`, plus a `meta` table (`device_id`, `hlc_last`, `pull_cursor`).
+
+Version 2 adds `placeholder_values (pin_id, name, value)`: the last values used for each pin's placeholders on this
+device. It is local-only, and saving values neither marks a pin dirty nor advances its clock.
 
 Local integer IDs remain the user-facing handle (`pinner rm 4`), and `uuid` is the sync identity. Removing a pin
 leaves a tombstone. The database runs in WAL mode, and the file and directory are owner-only.

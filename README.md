@@ -8,7 +8,8 @@ your devices end-to-end encrypted, so the sync server can't read or change them.
 
 - **Searchable menu**: run, copy (`-c`) or print (`-p`) a pin. Search matches commands, labels and tags.
 - **Labels and tags**: `-n "tail prod logs" -t k8s,prod`. Filter the menu with `pinner -t k8s`.
-- **Placeholders**: `ssh <<user>>@<<host>> -p <<port:22>>` asks for values when you run the pin.
+- **Placeholders**: `ssh <<user>>@<<host>> -p <<port:22>>` asks for values when you run the pin, remembers
+  what you used last, and can save new values as defaults or as a new pin.
 - **Smart ordering**: the pins you use most, and used most recently, come first.
 - **Sensitive pins**: `--sensitive` masks a command in menus and lists (good for commands with tokens).
 - **Shell integration**: Alt+p puts a pin on your prompt so you can edit it before running it, and `pin-last` pins the command you just ran.
@@ -72,9 +73,32 @@ pinner export -o pins.json
 pinner import pins.json
 ```
 
+### Placeholders
+
+When you run a pin with placeholders, pinner asks for each value. A placeholder used more than once is asked
+for once:
+
+```text
+host: staging.internal
+port [5601]:                 ← Enter keeps the value shown in brackets
+? You entered new values:
+  ▸ Run
+    Run and save as defaults      → the pin becomes ssh <<host:staging.internal>> -L <<port:5601>>…
+    Save as new pin, then run     → a separate pin with these values filled in (asks for a label)
+```
+
+- **Last values are remembered.** Next time, each prompt is pre-filled with what you used last on this device,
+  so pressing Enter repeats the last run. These values stay on the device and aren't synced.
+- **You're only asked about saving when you type something new.** Repeating the last values, or accepting
+  the defaults, runs straight away. Set `PINNER_ASK_SAVE=0` to never be asked; values are still remembered.
+- **Saving as defaults** edits the pin, so the new defaults sync to your other devices. **Saving as a new pin**
+  copies the original's tags and its sensitive and local settings.
+- **Sensitive pins** never remember values (they're often tokens), and their defaults show as `[default]`
+  instead of being printed.
+
 Placeholders use `<<name>>` because `{{...}}` shows up in real commands (`docker --format`, kubectl go-templates).
 A command with no `<<name>>` placeholders is never changed. Values are inserted exactly as typed, so quote them
-yourself if they contain spaces or shell characters.
+yourself if they contain spaces or shell characters. Defaults can't contain `<`, `>` or newlines.
 
 ### Shell integration
 

@@ -555,6 +555,18 @@ func (tm *tmux) keys(keys ...string) {
 	}
 }
 
+// waitScreen waits until text appears on the tmux screen.
+func (tm *tmux) waitScreen(text string) {
+	tm.t.Helper()
+	for i := 0; i < 100; i++ {
+		if strings.Contains(tm.screen(), text) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	tm.t.Fatalf("%q never appeared on screen:\n%s", text, tm.screen())
+}
+
 func (tm *tmux) screen() string {
 	tm.t.Helper()
 	return tm.cmd("capture-pane", "-t", tm.session, "-p")
@@ -612,19 +624,159 @@ func TestPrintSelectsFrecencySortedPinAndFillsPlaceholders(t *testing.T) {
 		t.Fatalf("expected a placeholder prompt:\n%s", tm.screen())
 	}
 	tm.keys("pinner", "Enter")
+	// A new value: pinner offers to save it. Enter keeps the default action, "Run".
+	tm.waitScreen("You entered new values")
+	tm.keys("Enter")
 	if got := waitFile(t, out); got != "echo hello pinner\ndone\n" {
 		t.Fatalf("stdout was %q", got)
 	}
 	_ = exec.Command("tmux", "-L", tm.socket, "kill-server").Run()
 
-	// That pin is now the most used, so it is first and Enter picks it; accept the default value.
+	// That pin is now the most used, so it is first and Enter picks it. The prompt is pre-filled with
+	// the value from last time, and repeating it doesn't ask about saving.
 	_ = os.Remove(out)
 	tm = newTmux(t, d, 100, "pinner --print > "+out+"; echo done >> "+out)
 	tm.keys("Enter")
-	time.Sleep(300 * time.Millisecond)
+	tm.waitScreen("name [pinner]")
 	tm.keys("Enter")
-	if got := waitFile(t, out); got != "echo hello world\ndone\n" {
+	if got := waitFile(t, out); got != "echo hello pinner\ndone\n" {
 		t.Fatalf("after reordering, stdout was %q", got)
+	}
+	if strings.Contains(tm.screen(), "You entered new values") {
+		t.Fatalf("repeating the last values should not ask about saving:\n%s", tm.screen())
+	}
+	if got := d.commands(); !sameSet(got, []string{"echo first", "echo hello <<name:world>>"}) {
+		t.Fatalf("choosing Run must not change the pin: %q", got)
+	}
+}
+
+// runPrint opens the menu with --print in tmux, runs drive against it, and returns what was printed.
+func runPrint(t *testing.T, d *device, env string, drive func(tm *tmux)) (string, *tmux) {
+	t.Helper()
+	out := filepath.Join(d.dir, "out")
+	_ = os.Remove(out)
+	tm := newTmux(t, d, 120, env+" pinner --print > "+out+"; echo done >> "+out)
+	drive(tm)
+	got := strings.TrimSuffix(waitFile(t, out), "done\n")
+	return got, tm
+}
+
+func pinByLabel(t *testing.T, d *device) map[string]string {
+	t.Helper()
+	m := map[string]string{}
+	for _, p := range d.export().Pins {
+		m[p.Label] = p.Command
+	}
+	return m
+}
+
+func TestPlaceholderRunAndSaveAsDefaults(t *testing.T) {
+	d := newDevice(t)
+	d.ok("", "add", "-n", "greet", "--", "echo <<greeting:hi>> <<who>> <<greeting>>")
+	got, _ := runPrint(t, d, "", func(tm *tmux) {
+		tm.keys("Enter")
+		tm.waitScreen("greeting [hi]")
+		tm.keys("hey", "Enter")
+		tm.waitScreen("who")
+		tm.keys("bob", "Enter")
+		tm.waitScreen("You entered new values")
+		tm.keys("Down", "Enter")
+	})
+	if got != "echo hey bob hey\n" {
+		t.Fatalf("printed %q", got)
+	}
+	if cmd := pinByLabel(t, d)["greet"]; cmd != "echo <<greeting:hey>> <<who:bob>> <<greeting:hey>>" {
+		t.Fatalf("defaults not saved into the pin: %q", cmd)
+	}
+	if len(d.export().Pins) != 1 {
+		t.Fatal("saving defaults must not create another pin")
+	}
+}
+
+func TestPlaceholderSaveAsNewPin(t *testing.T) {
+	d := newDevice(t)
+	d.ok("", "add", "-n", "tunnel", "-t", "net", "--", "ssh <<host>> -L <<port:5601>>:localhost:<<port>>")
+	got, _ := runPrint(t, d, "", func(tm *tmux) {
+		tm.keys("Enter")
+		tm.waitScreen("host")
+		tm.keys("staging.internal", "Enter")
+		tm.waitScreen("port [5601]")
+		tm.keys("Enter")
+		tm.waitScreen("You entered new values")
+		tm.keys("Down", "Down", "Enter")
+		tm.waitScreen("Label for the new pin")
+		tm.keys(" staging", "Enter")
+	})
+	if got != "ssh staging.internal -L 5601:localhost:5601\n" {
+		t.Fatalf("printed %q", got)
+	}
+	pins := d.export().Pins
+	if len(pins) != 2 {
+		t.Fatalf("want the original and a new pin, got %+v", pins)
+	}
+	byLabel := pinByLabel(t, d)
+	if byLabel["tunnel"] != "ssh <<host>> -L <<port:5601>>:localhost:<<port>>" {
+		t.Fatalf("original pin changed: %q", byLabel["tunnel"])
+	}
+	if byLabel["tunnel staging"] != "ssh staging.internal -L 5601:localhost:5601" {
+		t.Fatalf("new pin: %+v", pins)
+	}
+	for _, p := range pins {
+		if p.Label == "tunnel staging" && (len(p.Tags) != 1 || p.Tags[0] != "net") {
+			t.Fatalf("new pin should copy tags: %+v", p)
+		}
+	}
+}
+
+func TestPlaceholderQuestionCanBeTurnedOff(t *testing.T) {
+	d := newDevice(t)
+	d.ok("", "add", "echo <<x>>")
+	got, tm := runPrint(t, d, "PINNER_ASK_SAVE=0", func(tm *tmux) {
+		tm.keys("Enter")
+		tm.waitScreen("x")
+		tm.keys("one", "Enter")
+	})
+	if got != "echo one\n" || strings.Contains(tm.screen(), "You entered new values") {
+		t.Fatalf("PINNER_ASK_SAVE=0 should skip the question; printed %q\n%s", got, tm.screen())
+	}
+	// Values are still remembered.
+	got, _ = runPrint(t, d, "PINNER_ASK_SAVE=0", func(tm *tmux) {
+		tm.keys("Enter")
+		tm.waitScreen("x [one]")
+		tm.keys("Enter")
+	})
+	if got != "echo one\n" {
+		t.Fatalf("second run printed %q", got)
+	}
+}
+
+func TestSensitivePinsDoNotRememberValues(t *testing.T) {
+	d := newDevice(t)
+	d.ok("", "add", "--sensitive", "--", "curl -H 'Authorization: Bearer <<token:NOT-A-REAL-DEFAULT>>' https://api.example.com")
+	token := "NOT-A-REAL-TOKEN-typed-123"
+	got, tm := runPrint(t, d, "", func(tm *tmux) {
+		tm.keys("Enter")
+		tm.waitScreen("token [default]") // the default isn't printed for sensitive pins
+		tm.keys(token, "Enter")
+		tm.waitScreen("You entered new values")
+		tm.keys("Enter")
+	})
+	if !strings.Contains(got, token) {
+		t.Fatalf("printed %q", got)
+	}
+	if strings.Contains(tm.screen(), "NOT-A-REAL-DEFAULT") {
+		t.Fatalf("sensitive default shown on screen:\n%s", tm.screen())
+	}
+	got, tm = runPrint(t, d, "", func(tm *tmux) {
+		tm.keys("Enter")
+		tm.waitScreen("token [default]")
+		tm.keys("Enter")
+	})
+	if strings.Contains(got, token) || !strings.Contains(got, "NOT-A-REAL-DEFAULT") {
+		t.Fatalf("sensitive pin remembered the typed value: %q", got)
+	}
+	if strings.Contains(tm.screen(), token) {
+		t.Fatalf("typed token shown on the second run:\n%s", tm.screen())
 	}
 }
 

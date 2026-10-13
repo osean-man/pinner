@@ -17,7 +17,7 @@ import (
 )
 
 // SchemaVersion is the latest schema version, stored in PRAGMA user_version.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 var (
 	ErrNotFound  = errors.New("pin not found")
@@ -155,6 +155,20 @@ func (s *Store) migrate(path string) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	steps := []func(*sql.Tx) error{migrateV1, migrateV2}
+	for v := version; v < SchemaVersion; v++ {
+		if err := steps[v](tx); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", SchemaVersion)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// migrateV1 upgrades the original schema (version 0): sync identity, labels, tags, flags and usage.
+func migrateV1(tx *sql.Tx) error {
 	// Version 0 is the original schema. CREATE IF NOT EXISTS covers brand new databases.
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS pins (
@@ -214,10 +228,19 @@ func (s *Store) migrate(path string) error {
 	if _, err := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS pins_uuid ON pins(uuid)"); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", SchemaVersion)); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return nil
+}
+
+// migrateV2 adds the local-only table of last-used placeholder values. It is never synced:
+// values are often specific to the machine (local ports, hosts on its network).
+func migrateV2(tx *sql.Tx) error {
+	_, err := tx.Exec(`CREATE TABLE IF NOT EXISTS placeholder_values (
+		pin_id INTEGER NOT NULL REFERENCES pins(id) ON DELETE CASCADE,
+		name TEXT NOT NULL,
+		value TEXT NOT NULL,
+		PRIMARY KEY (pin_id, name)
+	)`)
+	return err
 }
 
 func firstLine(s string) string {
@@ -542,6 +565,43 @@ func (s *Store) Remove(id int64) error {
 	}
 	if _, err := tx.Exec("UPDATE pins SET deleted = 1, hlc = ?, dirty = 1 WHERE id = ?", ts, id); err != nil {
 		return fmt.Errorf("error removing pin: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM placeholder_values WHERE pin_id = ?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// LastValues returns the placeholder values last used when running the pin on this device.
+func (s *Store) LastValues(pinID int64) (map[string]string, error) {
+	rows, err := s.db.Query("SELECT name, value FROM placeholder_values WHERE pin_id = ?", pinID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	values := map[string]string{}
+	for rows.Next() {
+		var name, value string
+		if err := rows.Scan(&name, &value); err != nil {
+			return nil, err
+		}
+		values[name] = value
+	}
+	return values, rows.Err()
+}
+
+// SaveLastValues remembers placeholder values for the next run of the pin. Like usage stats, they are
+// local-only: saving them neither marks the pin dirty nor advances its clock.
+func (s *Store) SaveLastValues(pinID int64, values map[string]string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for name, value := range values {
+		if _, err := tx.Exec("INSERT OR REPLACE INTO placeholder_values(pin_id, name, value) VALUES (?, ?, ?)", pinID, name, value); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
