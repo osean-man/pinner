@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -505,6 +506,8 @@ func TestCommandsKeepWorkingWhenServerIsDown(t *testing.T) {
 
 // ---- Interactive tests (tmux) ----
 
+var tmuxSessions atomic.Int64
+
 type tmux struct {
 	t       *testing.T
 	socket  string
@@ -519,7 +522,9 @@ func newTmux(t *testing.T, d *device, width int, command string) *tmux {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	tm := &tmux{t: t, socket: "pinner-e2e-" + filepath.Base(d.dir), session: "s"}
+	// A fresh socket per session: reusing one right after kill-server races with the old server's
+	// shutdown, and the new session can attach to the dying server ("server exited unexpectedly").
+	tm := &tmux{t: t, socket: fmt.Sprintf("pinner-e2e-%d-%d", os.Getpid(), tmuxSessions.Add(1)), session: "s"}
 	envs := strings.Join(d.env, " ")
 	script := filepath.Join(d.dir, "tmux-cmd.sh")
 	body := fmt.Sprintf("#!/bin/sh\nexport %s PATH=%s:$PATH TERM=xterm-256color\nsleep 0.3\n%s\nsleep 60\n", envs, binDir, command)
