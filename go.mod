@@ -1,6 +1,8 @@
 module github.com/osean-man/pinner
 
-go 1.23.0
+go 1.26.0
+
+toolchain go1.27.2
 
 require (
 	github.com/atotto/clipboard v0.1.4
@@ -9,8 +11,8 @@ require (
 	github.com/manifoldco/promptui v0.9.0
 	github.com/mattn/go-runewidth v0.0.15
 	github.com/spf13/cobra v1.8.0
-	golang.org/x/crypto v0.28.0
-	golang.org/x/term v0.25.0
+	golang.org/x/crypto v0.58.0
+	golang.org/x/term v0.47.0
 	modernc.org/sqlite v1.38.2
 )
 
@@ -24,7 +26,7 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
-	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	modernc.org/libc v1.66.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

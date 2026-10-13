@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,7 +16,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/osean-man/pinner/internal/buildinfo"
 	"github.com/osean-man/pinner/internal/server"
+)
+
+// Set by release builds with -ldflags "-X main.version=... -X main.commit=... -X main.date=...".
+var (
+	version string
+	commit  string
+	date    string
 )
 
 func envOr(key, fallback string) string {
@@ -35,7 +44,14 @@ func main() {
 	dbPath := flag.String("db", envOr("PINNER_DB", "pinner-server.db"), "SQLite database path (env PINNER_DB)")
 	maxUsers := flag.Int("max-users", envInt("PINNER_MAX_USERS"), "maximum registered users, 0 for unlimited (env PINNER_MAX_USERS)")
 	maxRecords := flag.Int("max-records", envInt("PINNER_MAX_RECORDS"), "maximum records per user (env PINNER_MAX_RECORDS)")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+
+	info := buildinfo.Resolve(version, commit, date)
+	if *showVersion {
+		fmt.Println("pinner-server " + info.String())
+		return
+	}
 
 	store, err := server.OpenStore(*dbPath)
 	if err != nil {
@@ -62,7 +78,7 @@ func main() {
 		_ = srv.Shutdown(shutdown)
 	}()
 
-	log.Printf("pinner-server listening on %s (db %s)", *addr, *dbPath)
+	log.Printf("pinner-server %s listening on %s (db %s)", info.Version, *addr, *dbPath)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}

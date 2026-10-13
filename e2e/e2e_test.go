@@ -24,6 +24,10 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	if runtime.GOOS == "windows" {
+		fmt.Println("skipping e2e tests: they drive a Unix shell")
+		os.Exit(0)
+	}
 	dir, err := os.MkdirTemp("", "pinner-e2e-bin-")
 	if err != nil {
 		panic(err)
@@ -164,6 +168,18 @@ func TestAddFromArgumentsStdinAndFlags(t *testing.T) {
 		if p.Command == "kubectl logs -f" && (p.Label != "logs" || strings.Join(p.Tags, ",") != "k8s,prod,ops") {
 			t.Fatalf("label/tags not stored: %+v", p)
 		}
+	}
+}
+
+func TestVersionReportsTheBuild(t *testing.T) {
+	d := newDevice(t)
+	out := d.ok("", "--version").stdout
+	head, err := exec.Command("git", "-C", repoRoot, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Skip("not a git checkout")
+	}
+	if !strings.HasPrefix(out, "pinner ") || !strings.Contains(out, "commit "+string(head[:12])) {
+		t.Fatalf("--version = %q, want the checkout's commit %s", out, head[:12])
 	}
 }
 

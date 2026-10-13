@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -143,6 +144,9 @@ func TestReopenIsIdempotentAndKeepsClockMonotonic(t *testing.T) {
 }
 
 func TestDatabaseFileIsOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits don't apply on Windows")
+	}
 	path := filepath.Join(t.TempDir(), "commands.db")
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
