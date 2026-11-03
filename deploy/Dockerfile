@@ -1,6 +1,6 @@
 # Build from the repository root:  docker build -f deploy/Dockerfile -t pinner-server .
 # Base images are pinned by digest; Dependabot proposes updates.
-FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
+FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS build
 ARG VERSION=""
 ARG COMMIT=""
 ARG DATE=""
