@@ -231,7 +231,8 @@ Upgrading from an earlier version migrates your existing database automatically,
 
 ```bash
 make test              # go test -race ./...  (unit, sync and end-to-end tests)
-make lint              # gofmt, go vet, govulncheck
+make lint              # gofmt, go vet, govulncheck, shellcheck (the CI lint checks)
+make hooks             # run gofmt/go vet/shellcheck before each commit and make lint before each push
 make snapshot          # build every release artifact into dist/ without publishing (needs Docker)
 go test -short ./...   # skip the test that builds the original release to check migration
 ```
