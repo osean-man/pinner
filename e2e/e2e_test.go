@@ -588,13 +588,21 @@ func (tm *tmux) screen() string {
 // waitFile waits for a file the command under test writes when it finishes.
 func waitFile(t *testing.T, path string) string {
 	t.Helper()
+	return waitFileSuffix(t, path, "\n")
+}
+
+// waitFileSuffix waits until a file ends with suffix, for files written in more than one step
+// (e.g. "cmd > out; echo done >> out", where out already ends in a newline before "done" is added).
+func waitFileSuffix(t *testing.T, path, suffix string) string {
+	t.Helper()
 	for i := 0; i < 100; i++ {
-		if b, err := os.ReadFile(path); err == nil && len(b) > 0 && bytes.HasSuffix(b, []byte("\n")) {
+		if b, err := os.ReadFile(path); err == nil && bytes.HasSuffix(b, []byte(suffix)) {
 			return string(b)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("%s was never written", path)
+	b, _ := os.ReadFile(path)
+	t.Fatalf("%s never ended with %q, contents: %q", path, suffix, b)
 	return ""
 }
 
@@ -640,7 +648,7 @@ func TestPrintSelectsFrecencySortedPinAndFillsPlaceholders(t *testing.T) {
 	// A new value: pinner offers to save it. Enter keeps the default action, "Run".
 	tm.waitScreen("You entered new values")
 	tm.keys("Enter")
-	if got := waitFile(t, out); got != "echo hello pinner\ndone\n" {
+	if got := waitFileSuffix(t, out, "done\n"); got != "echo hello pinner\ndone\n" {
 		t.Fatalf("stdout was %q", got)
 	}
 	_ = exec.Command("tmux", "-L", tm.socket, "kill-server").Run()
@@ -652,7 +660,7 @@ func TestPrintSelectsFrecencySortedPinAndFillsPlaceholders(t *testing.T) {
 	tm.keys("Enter")
 	tm.waitScreen("name [pinner]")
 	tm.keys("Enter")
-	if got := waitFile(t, out); got != "echo hello pinner\ndone\n" {
+	if got := waitFileSuffix(t, out, "done\n"); got != "echo hello pinner\ndone\n" {
 		t.Fatalf("after reordering, stdout was %q", got)
 	}
 	if strings.Contains(tm.screen(), "You entered new values") {
@@ -670,7 +678,7 @@ func runPrint(t *testing.T, d *device, env string, drive func(tm *tmux)) (string
 	_ = os.Remove(out)
 	tm := newTmux(t, d, 120, env+" pinner --print > "+out+"; echo done >> "+out)
 	drive(tm)
-	got := strings.TrimSuffix(waitFile(t, out), "done\n")
+	got := strings.TrimSuffix(waitFileSuffix(t, out, "done\n"), "done\n")
 	return got, tm
 }
 
@@ -824,18 +832,26 @@ func TestBashIntegration(t *testing.T) {
 	tm := newTmux(t, d, 100, "bash --noprofile --rcfile "+rc+" -i")
 	tm.keys("echo just-ran-this", "Enter")
 	tm.keys("pin-last -n recent", "Enter")
-	time.Sleep(500 * time.Millisecond)
+	tm.waitScreen("Pinned #2")
 
 	// Alt+p opens the picker; Enter inserts the pin into the prompt without running it.
 	tm.keys("M-p")
-	time.Sleep(500 * time.Millisecond)
+	tm.waitScreen("Use the arrow keys")
 	tm.keys("Enter")
-	time.Sleep(500 * time.Millisecond)
-	screen := tm.screen()
-	lines := strings.Split(strings.TrimRight(screen, "\n"), "\n")
-	last := lines[len(lines)-1]
-	if !strings.HasPrefix(last, "$ ") || !strings.Contains(last, "echo ") {
-		t.Fatalf("widget should leave a pin on the prompt line, screen:\n%s", screen)
+	// bash redraws the prompt with the pin on it after the picker exits, which can take a while on
+	// slow runners, so wait for it rather than sleeping a fixed time.
+	var screen string
+	for i := 0; i < 100; i++ {
+		screen = tm.screen()
+		lines := strings.Split(strings.TrimRight(screen, "\n"), "\n")
+		last := lines[len(lines)-1]
+		if strings.HasPrefix(last, "$ ") && strings.Contains(last, "echo ") {
+			break
+		}
+		if i == 99 {
+			t.Fatalf("widget should leave a pin on the prompt line, screen:\n%s", screen)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
 	e := d.export()
