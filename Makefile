@@ -3,7 +3,7 @@ PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 GOFLAGS_BUILD := -trimpath
 
-.PHONY: build server install test lint snapshot clean
+.PHONY: build server install test lint hooks snapshot clean
 
 build:
 	CGO_ENABLED=0 go build $(GOFLAGS_BUILD) -o pinner .
@@ -28,6 +28,13 @@ lint:
 	test -z "$$(gofmt -l .)"
 	go vet ./...
 	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+	@if command -v shellcheck >/dev/null; then shellcheck install.sh; \
+		else echo "shellcheck not installed, skipping install.sh (CI still checks it)"; fi
+
+# Run the checks above before commits and pushes (see .githooks/).
+hooks:
+	git config core.hooksPath .githooks
+	@echo "Git hooks enabled: pre-commit (gofmt, go vet, shellcheck) and pre-push (make lint)"
 
 # Build every release artifact locally without publishing (needs Docker).
 snapshot:

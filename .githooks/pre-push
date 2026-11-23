@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs the same checks as the CI lint job before anything leaves this machine.
+# Enable with: make hooks   (skip once with: git push --no-verify)
+set -e
+make lint
